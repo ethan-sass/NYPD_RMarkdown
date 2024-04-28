@@ -1,0 +1,180 @@
+---
+title: "NYPD Shooting Incidents"
+author: "E.S."
+date: "2024-04-10"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Step 1: Start an Rmd Document
+**Start an Rmd document that describes and imports the shooting project dataset in a reproducible manner.**
+
+> We will be using the City of New York's data on shooting incidents from 2006 through 2022.  
+As described by its webpage on [data.gov](https://catalog.data.gov/dataset/nypd-shooting-incident-data-historic): _"This data is manually extracted every quarter and reviewed by the Office of Management Analysis and Planning before being posted on the NYPD website. Each record represents a shooting incident in NYC and includes information about the event, the location and time of occurrence. In addition, information related to suspect and victim demographics is also included."_  
+
+>Ultimately, we will examine the relationship between average monthly temperature and monthly shootings in the Bronx in 2021.
+
+```{r, message=FALSE, results=FALSE}
+# Load the tidyverse, lubridate, dplyr, & ggplot2 packages
+library(tidyverse)
+library(lubridate)
+library(dplyr)
+library(ggplot2)
+
+# Read in .csv dataset of NYPD shootings
+url_in <- "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+NYC_shootings <- read_csv(url_in)
+```
+
+***
+
+## Step 2: Tidy and Transform Your Data
+**Add to your Rmd document a summary of the data and clean up your dataset by changing appropriate variables to factor and date types and getting rid of any columns not needed.  Show the summary of your data to be sure there is no missing data. If there is missing data, describe how you plan to handle it.**
+
+```{r}
+# View summary of data
+summary(NYC_shootings)
+```
+
+
+> After glancing over the initial summary, let's look at the borough and date of occurrence columns, specifically. Columns related to time/precinct/demographics/location coordinates can be removed. We will also add OCCUR_MONTH and OCCUR_YEAR columns in order to interact with the date of occurrence data in different ways.
+
+
+```{r}
+# Remove variables that are not of interest
+NYC_shootings <- NYC_shootings %>%
+  select(-c(OCCUR_TIME, LOC_OF_OCCUR_DESC, PRECINCT, JURISDICTION_CODE, LOC_CLASSFCTN_DESC, LOCATION_DESC, STATISTICAL_MURDER_FLAG, PERP_AGE_GROUP, PERP_SEX, PERP_RACE, VIC_AGE_GROUP, VIC_SEX, VIC_RACE, X_COORD_CD, Y_COORD_CD, Latitude, Longitude, Lon_Lat))
+
+# Reformat OCCUR_DATE     
+NYC_shootings$OCCUR_DATE <- mdy(NYC_shootings$OCCUR_DATE)
+
+# Create OCCUR_YEAR & OCCUR_MONTH
+NYC_shootings <- NYC_shootings %>%
+  mutate(OCCUR_YEAR = c(year(NYC_shootings$OCCUR_DATE))) %>%
+  mutate(OCCUR_MONTH = c(month(NYC_shootings$OCCUR_DATE)))
+  
+# View new summary of data  
+summary(NYC_shootings)
+
+# Check for any null values (Output of "0" means no missing data)
+sum(is.na(NYC_shootings))
+```
+
+***
+
+## Step 3: Add Visualizations and Analysis
+**Add at least two different visualizations & some analysis to your Rmd.  Does this raise additional questions that you should investigate?**
+
+>First, we should see what yearly shootings look like in the boroughs. A visualization could be useful in interpreting that data.
+
+```{r}
+# Create a grouped bar plot of yearly shootings by borough
+Borough_Shootings_by_Year <- table(NYC_shootings$BORO, NYC_shootings$OCCUR_YEAR)
+
+par(mar = c(5, 5, 5, 5)) 
+barplot(Borough_Shootings_by_Year, 
+        main = "Borough Shootings by Year", 
+        xlab = "Year", ylab = "Number of Incidents", ylim = c(0, 1200), 
+        beside = TRUE, 
+        col=c("darkblue","lightblue","darkgreen","pink","green"))
+legend("topright",
+       inset = c(0.25, 0),
+       title = "Boroughs", rownames(Borough_Shootings_by_Year), pch = 15,
+       col = c("darkblue","lightblue","darkgreen","pink","green"))
+```
+
+
+> The number of shootings in each borough varies quite a bit. Staten Island, Queens, and Manhattan have relatively low numbers of shootings each year, while the Bronx and Brooklyn are at the top. 
+
+* Is the number of shootings influenced by the size/population of a borough?
+* What role do socioeconomic factors play?
+  + Demographics?
+  + Poverty?
+  + Access to guns?
+
+>As we can see, Brooklyn is the borough that has the most shootings every year...except for 2021. That year the Bronx had the most shooting incidents.  Let's investigate that borough/year combination by creating a table of shootings in each month and plotting it.
+
+
+```{r, message = FALSE}
+# Filter the shootings in 2021
+NYC_shootings_2021<- NYC_shootings %>% filter(OCCUR_DATE >= '2021-01-01' & OCCUR_DATE <= '2021-12-31') 
+
+# Filter the 2021 shootings in the Bronx
+Bronx_shootings_2021 <- NYC_shootings_2021 %>% filter(str_detect("BRONX", NYC_shootings_2021$BORO))
+
+# Create a table of shootings by month number (1 = Jan, 2 = Feb, ..., 12 = Dec)
+table(Bronx_shootings_2021$OCCUR_MONTH)
+
+# Create a line plot of the data from the table above
+Month_Number <- 1:12
+Bronx_Shootings <- c(27, 25, 58, 62, 72, 47, 61, 83, 59, 51, 34, 52)
+data <- data.frame(Month_Number, Bronx_Shootings)
+
+ggplot(data, aes(x=Month_Number, y=Bronx_Shootings)) +
+  geom_line() +
+  xlim(1, 12) +
+  ylim(25, 85) +
+  scale_x_continuous(breaks=1:12)
+```
+
+
+> The winter months tend to have a lower number of monthly shootings, while the summer months are on the higher end. Let's investigate the relationship between monthly shootings and average monthly temperature.
+
+> _Linked are the average monthly temperatures (Fahrenheit) for 2021 from the [National Weather Service](https://www.weather.gov/media/okx/Climate/CentralPark/monthlyannualtemp.pdf). (Central Park is located in Manhattan, but it is very close to the Bronx—especially in a meteorological sense, so it will work well for our purposes here.)_
+
+
+```{r, message = FALSE}
+# Create new data.frame incorporating temperature data
+AvgMonthTempF <- c(34.8, 34.2, 45.8, 54.6, 62.9, 74.3, 76, 77.5, 70.3, 62, 46.2, 43.8)
+MonthlyShootings <- c(27, 25, 58, 62, 72, 47, 61, 83, 59, 51, 34, 52)
+Shootings_by_Temp <- data.frame(AvgMonthTempF, MonthlyShootings)
+
+# Plot monthly Bronx shootings (2021) by average monthly temperature (2021, Fahrenheit)
+ggplot(Shootings_by_Temp, aes(x=AvgMonthTempF, y=MonthlyShootings)) +
+  geom_point() +
+  xlim(30, 80) +
+  ylim(25, 85)
+```
+
+
+>Based on this plot, it looks like there is a correlation between average monthly temperature and monthly shootings. A linear model will help determine if this correlation is statistically significant.
+
+
+```{r}
+mod <- lm(MonthlyShootings ~ AvgMonthTempF, data = Shootings_by_Temp)
+summary(mod)
+```
+
+
+>Looking at the p-value produced by the model, the correlation between average monthly temperature and monthly shootings is confirmed to be statistically significant. Let's add the model predictions to the previous plot.
+
+
+```{r}
+#Plot the model predictions alongside the actual data
+Shootings_by_Temp_w_Pred <- Shootings_by_Temp %>%
+  mutate(Prediction = predict(mod))
+
+Shootings_by_Temp_w_Pred %>% ggplot() +
+  geom_point(aes(x = AvgMonthTempF, y = MonthlyShootings), color = "black") +
+  geom_line(aes(x = AvgMonthTempF, y = Prediction), color = "red")
+```
+
+> This plot helps visualize the positive correlation between these variables. It also leads us to additional   questions, such as:
+
+* Does this correlation hold true for other years? For other boroughs?
+* What other seasonal factors beyond temperature could play a role in the increase of shootings in warmer months?
+  + Summer break from school?
+  + More time spent outside?
+  + A higher population in summertime? (more tourists, seasonal workers, etc.)
+
+***
+
+## Project Step 4: Add Bias Identification
+**Write the conclusion to your project report and include any possible sources of bias.  Be sure to identify what your personal bias might be and how you have mitigated that.**
+
+> As stated above, there is a statistically significant correlation between the average monthly temperature and the number of shootings that occurred in a given month in the Bronx (in 2021). Personally, my existing assumption was that summers have more shootings than winter, so including a relevant model showing a statistically significant correlation helps to mitigate confirmation bias.
+
+>It is important to note that steps to reduce other potential biases are necessary to draw more conclusive insights. The data selected for analysis is from the only year in the larger dataset in which Brooklyn was the borough with the most shootings...and 2021 was a year in which a global pandemic was occurring. The possibility exists, therefore, that we could be analyzing an outlier. To reduce the chance of selection bias, a larger analysis could be taken across multiple years and boroughs. Looking at other areas like demographics, precincts, time of day, etc. could also be incorporated into a more comprehensive analysis.
